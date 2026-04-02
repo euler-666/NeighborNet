@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+
+*.pt
+*.pth
+*.tar
+*.pth.tar
+
+output/
+
+test_videos*
+
+.env
+*.log

@@ -242,7 +242,7 @@ class BasicReason(nn.Module):
         self.tnei = tnei
         self.T = T
 
-        self.ctxinx = self._tneigh_mask(mode='all')[None]
+        self.register_buffer('ctxinx', self._tneigh_mask(mode='all')[None], persistent=False)
 
         self.initialize_weight(self.pf)
         self.initialize_weight(self.ns)
@@ -270,8 +270,9 @@ class BasicReason(nn.Module):
 
         # # pre2j&future
         # # pre:B,T,2*N+1,C; fut:B,T,2*N+1,C, sim_pf:(B,T,T,2*N+1,2*N+1)
-        ctx_q = torch.einsum('btnd, btdc->btnc', (self.ctxinx, pf.unsqueeze(dim=1)))
-        ctx_k = torch.einsum('btnd, btdc->btnc', (self.ctxinx, pf.unsqueeze(dim=1)))
+        ctxinx = self.ctxinx.to(x.device)
+        ctx_q = torch.einsum('btnd, btdc->btnc', (ctxinx, pf.unsqueeze(dim=1)))
+        ctx_k = torch.einsum('btnd, btdc->btnc', (ctxinx, pf.unsqueeze(dim=1)))
         sim_pf = torch.einsum('bxuic, buyjc->bxyij', (ctx_q.unsqueeze(dim=2), ctx_k.unsqueeze(dim=1)))
 
         sim_pf = sim_pf.reshape(B,-1,2*self.tnei+1, 2*self.tnei+1)
@@ -289,11 +290,10 @@ class BasicReason(nn.Module):
         return v
 
     def _tneigh_mask(self,  mode='pre'):
-        # v2: mask:(seg_sz, neigh+0/1, seg_sz)
         T = self.T
         tnei = self.tnei
         if mode == 'pre':
-            mask = torch.zeros(T, tnei+1, T, requires_grad=False, device="cuda:0")
+            mask = torch.zeros(T, tnei+1, T, requires_grad=False)
             neigh_inx = {}
             for i in range(T):
                 if i - tnei < 0:
@@ -302,7 +302,7 @@ class BasicReason(nn.Module):
                     inx = [j for j in range(i - tnei, i+1)]
                 neigh_inx.update({i: inx})
         elif mode == 'fut':
-            mask = torch.zeros(T, tnei+1, T, requires_grad=False, device="cuda:0")
+            mask = torch.zeros(T, tnei+1, T, requires_grad=False)
             neigh_inx = {}
             for i in range(T):
                 if i + 1 + tnei <= T:
@@ -311,7 +311,7 @@ class BasicReason(nn.Module):
                     inx = [j for j in range(T - tnei-1, T)]
                 neigh_inx.update({i: inx})
         else:
-            mask = torch.zeros(T, 2*tnei+1, T, requires_grad=False, device="cuda:0")
+            mask = torch.zeros(T, 2*tnei+1, T, requires_grad=False)
             neigh_inx = {}
             for i in range(T):
                 if i - tnei < 0:
@@ -484,7 +484,7 @@ class SineActivation(nn.Module):
         self.b = nn.parameter.Parameter(torch.randn(out_features-1))
         self.f = torch.sin
 
-        self.pos_ids = torch.arange(n_shot, dtype=torch.float, device='cuda:0')[:, None]
+        self.register_buffer('pos_ids', torch.arange(n_shot, dtype=torch.float)[:, None], persistent=False)
 
     def forward(self, B):
         """
@@ -529,8 +529,8 @@ class RelativePosition(nn.Module):
         self.seg_sz = seg_sz
         self.w = nn.parameter.Parameter(0.5*torch.ones(seg_sz, seg_sz))
         self.b = nn.parameter.Parameter(torch.randn(seg_sz, 1))
-        q_idx = torch.arange(self.seg_sz, dtype=torch.long, device="cuda:0")
-        self.rel_pos = (q_idx[None] - q_idx[:, None])**2
+        q_idx = torch.arange(self.seg_sz, dtype=torch.long)
+        self.register_buffer('rel_pos', ((q_idx[None] - q_idx[:, None]) ** 2).float(), persistent=False)
 
         # nn.init.xavier_uniform_(self.w)
         nn.init.xavier_uniform_(self.b)
@@ -707,7 +707,7 @@ class MBasicReason(nn.Module):
         self.tnei = tnei
         self.T = T
 
-        self.ctxinx = self._tneigh_mask(mode='all')[None]
+        self.register_buffer('ctxinx', self._tneigh_mask(mode='all')[None], persistent=False)
 
         self.initialize_weight(self.pf)
         self.initialize_weight(self.ns)
@@ -739,8 +739,9 @@ class MBasicReason(nn.Module):
 
         # # pre2j&future
         # # pre:B,T,2*N+1,C; fut:B,T,2*N+1,C, sim_pf:(B,T,T,2*N+1,2*N+1)
-        ctx_q = torch.einsum('btnd, btdc->btnc', (self.ctxinx, pf.unsqueeze(dim=1)))
-        ctx_k = torch.einsum('btnd, btdc->btnc', (self.ctxinx, pf.unsqueeze(dim=1)))
+        ctxinx = self.ctxinx.to(x.device)
+        ctx_q = torch.einsum('btnd, btdc->btnc', (ctxinx, pf.unsqueeze(dim=1)))
+        ctx_k = torch.einsum('btnd, btdc->btnc', (ctxinx, pf.unsqueeze(dim=1)))
         sim_pf = torch.einsum('bxuic, buyjc->bxyij', (ctx_q.unsqueeze(dim=2), ctx_k.unsqueeze(dim=1)))
 
         sim_pf = sim_pf.reshape(B,-1,2*self.tnei+1, 2*self.tnei+1)
@@ -761,11 +762,10 @@ class MBasicReason(nn.Module):
         # return v, self.softmax(mask+x.matmul(x.transpose(-2, -1))), sim
 
     def _tneigh_mask(self,  mode='pre'):
-        # v2: mask:(seg_sz, neigh+0/1, seg_sz)
         T = self.T
         tnei = self.tnei
         if mode == 'pre':
-            mask = torch.zeros(T, tnei+1, T, requires_grad=False, device="cuda:0")
+            mask = torch.zeros(T, tnei+1, T, requires_grad=False)
             neigh_inx = {}
             for i in range(T):
                 if i - tnei < 0:
@@ -774,7 +774,7 @@ class MBasicReason(nn.Module):
                     inx = [j for j in range(i - tnei, i+1)]
                 neigh_inx.update({i: inx})
         elif mode == 'fut':
-            mask = torch.zeros(T, tnei+1, T, requires_grad=False, device="cuda:0")
+            mask = torch.zeros(T, tnei+1, T, requires_grad=False)
             neigh_inx = {}
             for i in range(T):
                 if i + 1 + tnei <= T:
@@ -783,7 +783,7 @@ class MBasicReason(nn.Module):
                     inx = [j for j in range(T - tnei-1, T)]
                 neigh_inx.update({i: inx})
         else:
-            mask = torch.zeros(T, 2*tnei+1, T, requires_grad=False, device="cuda:0")
+            mask = torch.zeros(T, 2*tnei+1, T, requires_grad=False)
             neigh_inx = {}
             for i in range(T):
                 if i - tnei < 0:

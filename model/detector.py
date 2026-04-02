@@ -153,7 +153,7 @@ class LatentDetector(nn.Module):
         pre, aft = torch.split(x, half, dim=1)
         pre_t = torch.matmul(aft[:, 0][:, None], pre.transpose(-2, -1))
         aft_t = torch.matmul(pre[:, -1][:, None], aft.transpose(-2, -1))
-        sim = torch.concat((pre_t.squeeze(), aft_t.squeeze()), dim=-1)
+        sim = torch.concat((pre_t.squeeze(dim=1), aft_t.squeeze(dim=1)), dim=-1)
         sim = self.tconv(sim)
         out = self.act(self.cls(sim))
 

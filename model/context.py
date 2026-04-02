@@ -3,15 +3,17 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from model.base import GCNBlock,  Normalization, NeighborAttent, \
-    BasicReason, FeedForward, GATv2, HopGCN, SelfAttention, MNeighborAttent, MBasicReason
+    BasicReason, FeedForward, GATv2, HopGCN, SelfAttention, MNeighborAttent, MBasicReason, TCAttention
 
 
 class SimilarNet(nn.Module):
-    def __init__(self, shot_dim, att_drop, seg_sz, topk, mode='self'):
+    def __init__(self, shot_dim, att_drop, seg_sz, topk, mode='self', variant='m'):
         super(SimilarNet, self).__init__()
         if mode == 'self':
-            # self.att_nei = NeighborAttent(shot_dim, dropout=att_drop, seg_sz=seg_sz, topk=topk)
-            self.att_nei = MNeighborAttent(shot_dim, dropout=att_drop, seg_sz=seg_sz, topk=topk)
+            if variant == 'm':
+                self.att_nei = MNeighborAttent(shot_dim, dropout=att_drop, seg_sz=seg_sz, topk=topk)
+            else:
+                self.att_nei = NeighborAttent(shot_dim, dropout=att_drop, seg_sz=seg_sz, topk=topk)
         elif mode == 'gat':
             self.att_nei = GATv2(shot_dim, shot_dim)
         elif mode == 'hopgnn':
@@ -48,17 +50,22 @@ class SimilarNet(nn.Module):
 
 
 class ReasonNet(nn.Module):
-    def __init__(self, in_dim, seg_sz=20, topk=4, tnei=2, att_drop=0.1, mode='self'):
+    def __init__(self, in_dim, seg_sz=20, topk=4, tnei=2, att_drop=0.1, mode='self', variant='m'):
         super().__init__()
         if mode == 'self':
-            # self.reason = BasicReason(in_dim, T=seg_sz, topk=topk, tnei=tnei, drop=att_drop)
-            self.reason = MBasicReason(in_dim, T=seg_sz, topk=topk, tnei=tnei, drop=att_drop)
+            if variant == 'm':
+                self.reason = MBasicReason(in_dim, T=seg_sz, topk=topk, tnei=tnei, drop=att_drop)
+            else:
+                self.reason = BasicReason(in_dim, T=seg_sz, topk=topk, tnei=tnei, drop=att_drop)
         elif mode == 'gat':
             self.reason = GATv2(in_dim, in_dim)
         elif mode == 'hopgnn':
             self.reason = HopGCN(in_dim)
         self.relu = nn.ReLU()
         self.att_norm = Normalization(in_dim, normalization='ln')
+
+        if variant != 'm':
+            self.fuse = TCAttention(in_dim)
 
         self.ffc = FeedForward(in_dim, int(in_dim*1.5), drop=att_drop)
         self.ffc_norm = Normalization(in_dim, normalization='ln')
@@ -69,11 +76,13 @@ class ReasonNet(nn.Module):
         :return:
         """
         _x = x
-        # mode = 'self
         x = self.reason(x, radj, inxs)
 
         x = self.relu(x)
         x = self.att_norm(_x+x)
+
+        if hasattr(self, 'fuse'):
+            x = self.fuse(_x, x)
 
         _x = x
         x = self.ffc(x)
