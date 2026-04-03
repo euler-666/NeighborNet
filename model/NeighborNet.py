@@ -8,14 +8,14 @@ from model.detector import LatentDetector, BaSSLDet
 
 class SLNet(nn.Module):
     def __init__(self, shot_dim=1920, embed_dim=1920, pos_features=256, att_drop=0.1,
-                 seg_sz=20, topk=4, tnei=2, mode='pretrain', variant='m'):
+                 seg_sz=20, topk=4, tnei=2, mode='pretrain', variant='m', has_fuse=None):
         super().__init__()
         self.embed_pos = SineActivation(n_shot=seg_sz, out_features=pos_features)
         self.proj = Embedding(shot_dim, embed_dim)
         shot_dim = embed_dim + pos_features
 
         self.s1 = SimilarNet(shot_dim, att_drop, topk=topk, seg_sz=seg_sz, mode='self', variant=variant)
-        self.r1 = ReasonNet(shot_dim, seg_sz=seg_sz, topk=topk, tnei=tnei, att_drop=att_drop, mode='self', variant=variant)
+        self.r1 = ReasonNet(shot_dim, seg_sz=seg_sz, topk=topk, tnei=tnei, att_drop=att_drop, mode='self', variant=variant, has_fuse=has_fuse)
 
         self.relu = nn.ReLU()
         if mode == 'pretrain':

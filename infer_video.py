@@ -210,6 +210,7 @@ def load_model(checkpoint_path, device, seg_sz=20, tnei=2):
         tnei=tnei,
         mode=cfg['mode'],
         variant=cfg['variant'],
+        has_fuse=cfg['has_fuse'],
     )
     model.load_state_dict(sd)
     model.eval().to(device)
@@ -286,10 +287,16 @@ def save_shot_frames(frames, shots, outdir):
     print(f'  Saved {len(frames)} shot keyframes to {shots_dir}/')
 
 
-def save_scene_clips(video_path, scenes, outdir):
-    """Cut scene clips from the source video using ffmpeg (copy, no re-encode)."""
+def save_scene_clips(video_path, scenes, outdir, reencode=False, workers=4):
+    """Cut scene clips from the source video using ffmpeg.
+
+    By default uses stream-copy (``-c copy``) which is near-instant but snaps
+    to the nearest keyframe.  Pass ``reencode=True`` for frame-accurate cuts
+    (much slower).
+    """
     import subprocess
     import shutil
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     if not shutil.which('ffmpeg'):
         print('  ffmpeg not found -- skipping scene clip export')
@@ -297,18 +304,48 @@ def save_scene_clips(video_path, scenes, outdir):
 
     scenes_dir = os.path.join(outdir, 'scenes')
     os.makedirs(scenes_dir, exist_ok=True)
-    for sc in scenes:
+
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    cap.release()
+    frame_dur = 1.0 / fps
+
+    def _cut(sc):
         start = sc['start_time']
-        duration = sc['end_time'] - start
+        end = sc['end_time'] - frame_dur
+        duration = max(end - start, frame_dur)
         out_path = os.path.join(
             scenes_dir,
             f'scene_{sc["scene_id"]:03d}_{start:.2f}s-{sc["end_time"]:.2f}s.mp4')
-        cmd = [
-            'ffmpeg', '-y', '-ss', str(start), '-i', video_path,
-            '-t', str(duration), '-c', 'copy', '-avoid_negative_ts', '1',
-            out_path
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if reencode:
+            cmd = [
+                'ffmpeg', '-y',
+                '-ss', str(start), '-i', video_path,
+                '-t', f'{duration:.6f}',
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+                '-c:a', 'aac', '-b:a', '192k',
+                '-avoid_negative_ts', '1',
+                out_path,
+            ]
+        else:
+            # -ss AFTER -i: starts from the first keyframe >= start_time,
+            # avoiding the extra-shot problem of pre-input seeking.
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', video_path,
+                '-ss', str(start),
+                '-t', f'{duration:.6f}',
+                '-c', 'copy',
+                '-avoid_negative_ts', '1',
+                out_path,
+            ]
+        subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_cut, sc) for sc in scenes]
+        for f in tqdm(as_completed(futures), total=len(futures), desc='Cutting scene clips'):
+            f.result()
+
     print(f'  Saved {len(scenes)} scene clips to {scenes_dir}/')
 
 

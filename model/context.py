@@ -50,7 +50,7 @@ class SimilarNet(nn.Module):
 
 
 class ReasonNet(nn.Module):
-    def __init__(self, in_dim, seg_sz=20, topk=4, tnei=2, att_drop=0.1, mode='self', variant='m'):
+    def __init__(self, in_dim, seg_sz=20, topk=4, tnei=2, att_drop=0.1, mode='self', variant='m', has_fuse=None):
         super().__init__()
         if mode == 'self':
             if variant == 'm':
@@ -64,7 +64,8 @@ class ReasonNet(nn.Module):
         self.relu = nn.ReLU()
         self.att_norm = Normalization(in_dim, normalization='ln')
 
-        if variant != 'm':
+        use_fuse = has_fuse if has_fuse is not None else (variant != 'm')
+        if use_fuse:
             self.fuse = TCAttention(in_dim)
 
         self.ffc = FeedForward(in_dim, int(in_dim*1.5), drop=att_drop)
